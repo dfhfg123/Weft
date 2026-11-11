@@ -1,5 +1,6 @@
 import { ChevronDown, Plus, Settings2, ShieldCheck } from 'lucide-react';
 import type { Analysis, Board } from '../types';
+import { useI18n } from '../i18n-context';
 
 interface SidebarProps {
   boards: Board[];
@@ -24,19 +25,20 @@ export function Sidebar({
   onPrivacy,
   onSettings,
 }: SidebarProps) {
+  const { t } = useI18n();
   return (
     <aside className="sidebar">
       <button className="new-canvas" onClick={onNewCanvas}>
         <span className="new-canvas-icon">
           <Plus size={14} strokeWidth={2.2} />
         </span>
-        New canvas
+        {t('sidebar.newCanvas')}
         <kbd>⌘⇧N</kbd>
       </button>
 
       <div className="side-section">
         <div className="side-label">
-          <span>Canvases</span>
+          <span>{t('sidebar.canvases')}</span>
           <span className="side-count">{boards.length}</span>
         </div>
         <nav className="board-list">
@@ -59,7 +61,7 @@ export function Sidebar({
 
       <div className="side-section thread-section">
         <div className="side-label">
-          <span>Threads</span>
+          <span>{t('sidebar.threads')}</span>
           <span className="side-count">{analysis.threads.length}</span>
         </div>
         <div className="thread-nav">
@@ -77,7 +79,7 @@ export function Sidebar({
             </button>
           ))}
           {analysis.threads.length === 0 && (
-            <p className="thread-nav-empty">Threads appear as you add notes.</p>
+            <p className="thread-nav-empty">{t('sidebar.threadsEmpty')}</p>
           )}
         </div>
       </div>
@@ -88,8 +90,8 @@ export function Sidebar({
             <ShieldCheck size={15} />
           </span>
           <span>
-            <strong>Private by design</strong>
-            <small>Weft runs on this device</small>
+            <strong>{t('sidebar.privateTitle')}</strong>
+            <small>{t('sidebar.privateBody')}</small>
           </span>
           <ChevronDown size={13} className="privacy-chevron" />
         </button>
@@ -97,9 +99,9 @@ export function Sidebar({
           <div className="profile-avatar">MC</div>
           <div className="profile-copy">
             <strong>Maya Chen</strong>
-            <small>Personal workspace</small>
+            <small>{t('sidebar.personal')}</small>
           </div>
-          <button className="profile-settings" aria-label="Settings" onClick={onSettings}>
+          <button className="profile-settings" aria-label={t('sidebar.settings')} onClick={onSettings}>
             <Settings2 size={15} />
           </button>
         </div>

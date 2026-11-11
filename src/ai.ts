@@ -1,4 +1,6 @@
 import type { Analysis, AskResult, Board, Connection, Note, ThreadMeta, ThreadView } from './types';
+import type { Locale } from './messages';
+import { translate } from './messages';
 import { threadPalette } from './data';
 
 const STOP_WORDS = new Set(
@@ -132,7 +134,7 @@ const CONCEPT_WORDS: Record<string, string[]> = {
 };
 
 export function tokenize(text: string): string[] {
-  return text
+  const latin = text
     .toLowerCase()
     .replace(/[’']/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -140,6 +142,20 @@ export function tokenize(text: string): string[] {
     .filter((word) => word.length > 2 && !STOP_WORDS.has(word))
     .map((word) => word.replace(/(ing|ed|ly|s)$/, ''))
     .filter(Boolean);
+
+  const cjk: string[] = [];
+  for (const run of text.match(/[\u3400-\u9fff]+/g) ?? []) {
+    const chars = [...run];
+    if (chars.length === 1) {
+      cjk.push(chars[0]);
+      continue;
+    }
+    for (let index = 0; index < chars.length - 1; index += 1) {
+      const bigram = chars[index] + chars[index + 1];
+      if (!CJK_STOP_BIGRAMS.has(bigram)) cjk.push(bigram);
+    }
+  }
+  return [...latin, ...cjk];
 }
 
 export function conceptsFor(text: string): string[] {
@@ -157,7 +173,48 @@ export function conceptsFor(text: string): string[] {
       }
     }
   }
+  for (const [term, concept] of ZH_TERM_TO_CONCEPT) {
+    if (text.includes(term)) concepts.add(concept);
+  }
   return [...concepts];
+}
+
+const CJK_STOP_BIGRAMS = new Set([
+  '我们', '你们', '他们', '她们', '一个', '这个', '那个', '这些', '那些', '什么',
+  '如果', '因为', '所以', '但是', '而且', '不是', '没有', '可以', '应该', '就是',
+  '还在', '已经', '以及', '或者', '之间', '自己', '这样', '那样', '如何', '为什么',
+  '怎么', '一种', '一条', '一块', '正在', '需要', '值得', '可能', '变得', '放在',
+  '一起', '其中', '而是', '会怎样', '的时候', '是不是', '有没有', '能不能',
+]);
+
+const ZH_CONCEPTS: Array<[string, string[]]> = [
+  ['attention', ['注意力', '专注', '关注', '心智', '认知', '留意', '分心']],
+  ['intention', ['意图', '意愿', '有意', '目的']],
+  ['focus', ['专注', '聚焦', '心流']],
+  ['economy', ['货币', '资本', '稀缺', '经济', '价值', '成本', '预算', '花费', '财富', '价格', '印制', '资源']],
+  ['measurement', ['指标', '衡量', '度量', '测量', '数据']],
+  ['interruption', ['打断', '干扰', '通知', '提醒', '消息', '弹窗', '急事', '收件箱', '提示音']],
+  ['feed', ['信息流', '推荐', '算法', '滚动', '老虎机', '无限', '上瘾']],
+  ['calm', ['平静', '安静', '环境式', '边缘', '无聊', '留白', '克制']],
+  ['pace', ['缓慢', '节奏', '速度', '打烊', '频率', '快', '慢']],
+  ['depth', ['深度', '深入', '减法', '删掉', '舍弃']],
+  ['protection', ['保护', '守护', '留出', '捍卫']],
+  ['design', ['设计', '界面', '产品', '体验', '默认值', '默认', '功能']],
+  ['tool', ['工具', '软件', '功能', '产品']],
+  ['craft', ['手艺', '品味', '工艺', '做工', '拒绝']],
+  ['clarity', ['清晰', '清楚', '慷慨', '简洁']],
+  ['feeling', ['感受', '感觉', '品味', '直觉', '必然', '原创', '奇怪']],
+  ['structure', ['结构', '框架', '秩序']],
+  ['habit', ['习惯', '频率', '参与度', '上瘾', '重复']],
+  ['information', ['信息', '数据', '内容', '知识', '信号', '噪声']],
+  ['time', ['时间', '分钟', '小时', '归还']],
+];
+
+const ZH_TERM_TO_CONCEPT = new Map<string, string>();
+ZH_CONCEPTS.forEach(([concept, terms]) => terms.forEach((term) => ZH_TERM_TO_CONCEPT.set(term, concept)));
+
+function pick(locale: Locale, english: string, chinese: string): string {
+  return locale === 'zh' ? chinese : english;
 }
 
 interface Vector {
@@ -212,7 +269,7 @@ function normalizeLabel(word: string): string {
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
-function deriveThreadLabelFromTexts(texts: string[], index: number): string {
+function deriveThreadLabelFromTexts(texts: string[], index: number, locale: Locale = 'en'): string {
   const counts = new Map<string, number>();
   texts.forEach((text) => {
     for (const concept of conceptsFor(text)) {
@@ -221,6 +278,16 @@ function deriveThreadLabelFromTexts(texts: string[], index: number): string {
   });
   const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   if (ranked.length === 0) {
+    if (locale === 'zh') {
+      const cjk = texts
+        .join(' ')
+        .replace(/[^\u3400-\u9fff]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .join('');
+      if (cjk.length >= 2) return `${cjk.slice(0, 4)}这条线`;
+      return `未命名的线索 ${index + 1}`;
+    }
     const labelStop = new Set([
       'note', 'notes', 'new', 'just', 'like', 'want', 'need', 'needs', 'make', 'made',
       'thing', 'things', 'really', 'very', 'much', 'many', 'should', 'would', 'could',
@@ -268,36 +335,68 @@ function deriveThreadLabelFromTexts(texts: string[], index: number): string {
     structure: 'Structure follows feeling',
     intention: 'Intention as the scarce thing',
   };
+  const labelsZh: Record<string, string> = {
+    attention: '注意力这条线',
+    economy: '注意力经济',
+    interruption: '打断的代价',
+    feed: '信息流的问题',
+    calm: '平静作为一种立场',
+    depth: '为深度做减法',
+    design: '设计的问题',
+    craft: '手艺这条线',
+    clarity: '清晰作为一种慷慨',
+    feeling: '感受优先',
+    tool: '有节奏的工具',
+    pace: '节奏高于速度',
+    time: '时间的问题',
+    information: '信息与注意力',
+    habit: '习惯回路',
+    measurement: '被衡量的东西',
+    protection: '我们要保护什么',
+    structure: '结构追随感受',
+    intention: '意图才是稀缺的',
+  };
+  if (locale === 'zh') return labelsZh[ranked[0][0]] ?? `${ranked[0][0]}这条线`;
   return labels[ranked[0][0]] ?? `${normalizeLabel(ranked[0][0])} & ${normalizeLabel(ranked[1]?.[0] ?? 'clarity')}`;
 }
 
-function deriveThreadLabel(notes: Note[], index: number): string {
-  return deriveThreadLabelFromTexts(notes.map((note) => note.text), index);
+function deriveThreadLabel(notes: Note[], index: number, locale: Locale): string {
+  return deriveThreadLabelFromTexts(notes.map((note) => note.text), index, locale);
 }
 
 function firstSentence(text: string): string {
-  const match = text.match(/^.*?[.!?](?:\s|$)/);
+  const match = text.match(/^.*?[.!?。！？]/);
   return (match?.[0] ?? text).trim();
 }
 
-export function createThreadMeta(board: Board, text: string, threadId: string): ThreadMeta {
-  const label = deriveThreadLabelFromTexts([text], board.threads.length);
+function shortLabel(label: string, locale: Locale): string {
+  return locale === 'zh' ? label.replace(/这条线$/, '') : label.replace(/^The\s+/i, '');
+}
+
+export function createThreadMeta(
+  board: Board,
+  text: string,
+  threadId: string,
+  locale: Locale = 'en',
+): ThreadMeta {
+  const label = deriveThreadLabelFromTexts([text], board.threads.length, locale);
   return {
     id: threadId,
     label,
-    short: label.replace(/^The\s+/i, ''),
+    short: shortLabel(label, locale),
     summary: firstSentence(text),
     color: threadPalette[board.threads.length % threadPalette.length],
+    isDynamic: true,
   };
 }
 
-function deriveSummary(notes: Note[]): string {
-  if (!notes.length) return 'A thread waiting to be pulled.';
+function deriveSummary(notes: Note[], locale: Locale = 'en'): string {
+  if (!notes.length) return pick(locale, 'A thread waiting to be pulled.', '一条等待被拉出的线。');
   const longest = [...notes].sort((a, b) => b.text.length - a.text.length)[0];
   return firstSentence(longest.text);
 }
 
-export function analyzeBoard(board: Board): Analysis {
+export function analyzeBoard(board: Board, locale: Locale = 'en'): Analysis {
   const notes = board.notes;
   const groups = new Map<string, Note[]>();
   notes.forEach((note) => {
@@ -308,11 +407,21 @@ export function analyzeBoard(board: Board): Analysis {
 
   const threads: ThreadView[] = board.threads.map((meta, index) => {
     const members = groups.get(meta.id) ?? [];
+    const dynamic = Boolean(meta.isDynamic);
+    const dynamicLabel = dynamic
+      ? deriveThreadLabelFromTexts(
+          members.map((note) => note.text),
+          index,
+          locale,
+        )
+      : meta.label;
     return {
       ...meta,
+      label: dynamicLabel,
+      short: dynamic ? shortLabel(dynamicLabel, locale) : meta.short,
       noteIds: members.map((note) => note.id),
-      isDynamic: false,
-      summary: meta.summary || deriveSummary(members),
+      isDynamic: dynamic,
+      summary: meta.summary || deriveSummary(members, locale),
       color: meta.color || threadPalette[index % threadPalette.length],
     };
   });
@@ -322,9 +431,9 @@ export function analyzeBoard(board: Board): Analysis {
     const members = groups.get(threadId) ?? [];
     threads.push({
       id: threadId,
-      label: deriveThreadLabel(members, index),
-      short: deriveThreadLabel(members, index).replace(/^The\s+/i, ''),
-      summary: deriveSummary(members),
+      label: deriveThreadLabel(members, index, locale),
+      short: shortLabel(deriveThreadLabel(members, index, locale), locale),
+      summary: deriveSummary(members, locale),
       color: threadPalette[(board.threads.length + index) % threadPalette.length],
       noteIds: members.map((note) => note.id),
       isDynamic: true,
@@ -332,7 +441,9 @@ export function analyzeBoard(board: Board): Analysis {
   });
 
   for (const item of threads) {
-    item.summary = item.isDynamic ? deriveSummary(groups.get(item.id) ?? []) : item.summary || deriveSummary(groups.get(item.id) ?? []);
+    item.summary = item.isDynamic
+      ? deriveSummary(groups.get(item.id) ?? [], locale)
+      : item.summary || deriveSummary(groups.get(item.id) ?? [], locale);
   }
 
   const sortedThreads = threads
@@ -358,36 +469,57 @@ export function analyzeBoard(board: Board): Analysis {
   const questionNote = notes.find((note) => note.kind === 'question');
   const tensionPair = chooseTension(notes, matrix);
   const dynamicTension = tensionPair
-    ? `${firstSentence(tensionPair[0].text)} — against ${firstSentence(tensionPair[1].text).toLowerCase()}`
+    ? pick(
+        locale,
+        `${firstSentence(tensionPair[0].text)} — against ${firstSentence(tensionPair[1].text).toLowerCase()}`,
+        `${firstSentence(tensionPair[0].text)}——对抗${firstSentence(tensionPair[1].text)}`,
+      )
     : questionNote
       ? firstSentence(questionNote.text)
-      : 'Add a few more notes and the live tension will surface here.';
+      : pick(
+          locale,
+          'Add a few more notes and the live tension will surface here.',
+          '再添加几条笔记，现场张力就会在这里浮现。',
+        );
 
   return {
     threads: sortedThreads,
     connections: limited,
     noteCount: notes.length,
-    throughline: board.throughline || deriveThroughline(sortedThreads),
-    tensionTitle: board.tensionTitle || 'The live tension',
+    throughline: board.throughline || deriveThroughline(sortedThreads, locale),
+    tensionTitle: board.tensionTitle || pick(locale, 'The live tension', '现场张力'),
     tension: board.tension || dynamicTension,
     openQuestion:
       board.openQuestion ||
       questionNote?.text ||
       (sortedThreads.length > 1
-        ? `What would connect ${sortedThreads[0].label.toLowerCase()} to ${sortedThreads[1].label.toLowerCase()}?`
-        : 'What question is this canvas trying to answer?'),
+        ? pick(
+            locale,
+            `What would connect ${sortedThreads[0].label.toLowerCase()} to ${sortedThreads[1].label.toLowerCase()}?`,
+            `${sortedThreads[0].label}与${sortedThreads[1].label}之间，靠什么连接？`,
+          )
+        : pick(
+            locale,
+            'What question is this canvas trying to answer?',
+            '这块画布试图回答的问题是什么？',
+          )),
   };
 }
 
-function deriveThroughline(threads: ThreadView[]): string {
-  if (!threads.length) return 'Every canvas begins with a single thread.';
+function deriveThroughline(threads: ThreadView[], locale: Locale = 'en'): string {
+  if (!threads.length) return pick(locale, 'Every canvas begins with a single thread.', '每一块画布，都从一条线索开始。');
   if (threads.length === 1) return threads[0].summary;
-  return `${threads[0].label} meets ${threads[1].label.toLowerCase()}.`;
+  return pick(
+    locale,
+    `${threads[0].label} meets ${threads[1].label.toLowerCase()}.`,
+    `${threads[0].label}与${threads[1].label}相遇。`,
+  );
 }
 
 function chooseTension(notes: Note[], matrix: number[][]): [Note, Note] | null {
   if (notes.length < 2) return null;
-  const contrastWords = /\b(not|isn't|never|without|against|instead|rather|but|vs\.?|versus|less|more)\b/i;
+  const contrastWords =
+    /\b(not|isn't|never|without|against|instead|rather|but|vs\.?|versus|less|more)\b|[不没无相反而非却但更少]/i;
   let best: { a: Note; b: Note; score: number } | null = null;
   for (let i = 0; i < notes.length; i += 1) {
     for (let j = i + 1; j < notes.length; j += 1) {
@@ -415,14 +547,26 @@ function topKeywords(text: string, count = 3): string[] {
     .map(([word]) => word);
 }
 
-function retrievalAnswer(query: string, board: Board, analysis: Analysis): AskResult {
+function retrievalAnswer(
+  query: string,
+  board: Board,
+  analysis: Analysis,
+  locale: Locale,
+): AskResult {
   const notes = board.notes;
   const queryTokens = tokenize(query);
   if (!notes.length) {
     return {
-      text: 'This canvas is still blank. Add a thought and I’ll start finding the threads between what you write.',
+      text: pick(
+        locale,
+        'This canvas is still blank. Add a thought and I’ll start finding the threads between what you write.',
+        '这块画布还是空的。写下一个念头，我就开始寻找它们之间的线。',
+      ),
       sources: [],
-      followUps: ['How do I add a thought?', 'What makes a good first note?'],
+      followUps: [
+        pick(locale, 'How do I add a thought?', '怎样添加一个念头？'),
+        pick(locale, 'What makes a good first note?', '什么样的第一条笔记算好？'),
+      ],
     };
   }
 
@@ -445,108 +589,237 @@ function retrievalAnswer(query: string, board: Board, analysis: Analysis): AskRe
 
   const strong = scored.filter((item) => item.score > 0.6).slice(0, 3);
   const chosen = strong.length ? strong : scored.slice(0, 2);
-  const keywords = topKeywords(chosen.map((item) => item.note.text).join(' '), 2);
   const lead = chosen[0]?.note;
   const second = chosen[1]?.note;
 
   const lines: string[] = [];
-  if (lead) {
-    lines.push(`${firstSentence(lead.text)}`);
-  }
+  if (lead) lines.push(firstSentence(lead.text));
   if (second) {
     lines.push(
-      `That sits next to a second signal: ${firstSentence(second.text).toLowerCase()}`,
+      pick(
+        locale,
+        `That sits next to a second signal: ${firstSentence(second.text).toLowerCase()}`,
+        `它旁边还有第二个信号：${firstSentence(second.text)}`,
+      ),
     );
   }
-  lines.push(
-    `Read together, the canvas is less interested in ${keywords[1] ?? 'the surface'} than in ${keywords[0] ?? 'the underlying pattern'}. ${analysis.threads[0]?.summary ?? ''}`,
-  );
+
+  if (locale === 'zh') {
+    lines.push(
+      `放在一起看，${analysis.throughline}${analysis.threads[0]?.summary ? ` ${analysis.threads[0].summary}` : ''}`,
+    );
+  } else {
+    const keywords = topKeywords(chosen.map((item) => item.note.text).join(' '), 2);
+    lines.push(
+      `Read together, the canvas is less interested in ${keywords[1] ?? 'the surface'} than in ${keywords[0] ?? 'the underlying pattern'}. ${analysis.threads[0]?.summary ?? ''}`,
+    );
+  }
 
   return {
     text: lines.join('\n\n'),
     sources: chosen.map((item) => item.note.id),
-    followUps: ['What’s the throughline?', 'Where is the tension?', 'What should I do next?'],
+    followUps: [
+      translate(locale, 'prompt.throughline'),
+      translate(locale, 'prompt.tension'),
+      translate(locale, 'prompt.next'),
+    ],
   };
 }
 
-export function askCanvas(query: string, board: Board, analysis: Analysis): AskResult {
+export function askCanvas(
+  query: string,
+  board: Board,
+  analysis: Analysis,
+  locale: Locale = 'en',
+): AskResult {
   const q = query.toLowerCase();
-  const sourcesForThreads = analysis.threads.flatMap((thread) => pickThreadSources(thread, board.notes)).slice(0, 5);
+  const sourcesForThreads = analysis.threads
+    .flatMap((thread) => pickThreadSources(thread, board.notes))
+    .slice(0, 5);
 
-  if (!board.notes.length) {
+  if (
+    /(how (does|do) weft|how weft works|how to use weft|add (a )?(thought|note)|first note|first prompt|good note)/.test(q) ||
+    /((weft|这里|这块画布|你).*(怎么|如何).*(工作|用)|怎么用\s*weft|如何使用\s*weft|添加.*(念头|笔记)|第一条笔记|开头提示|好笔记)/.test(q)
+  ) {
     return {
-      text: 'A blank canvas is still a useful place to begin. Add one thought — even a bad one — and I’ll begin weaving it into the rest.',
+      text: pick(
+        locale,
+        'Weft keeps your canvas in this browser. Notes are compared and gathered into threads on-device. A reading snapshot is sent to DeepSeek to refine the throughline, tension and open question; when you ask, canvas context goes with your question for a grounded answer. The local reading stays as a fallback.\n\nGood first notes are small and specific — one claim, one question, or one line you want to keep. Don’t try to write the whole argument. Weft needs edges before it can find a shape.',
+        'Weft 把你的画布留在这个浏览器里。笔记在这台设备上被比较、聚成线索。阅读快照会发送给 DeepSeek，用来打磨主线、张力与开放问题；当你提问时，画布上下文会随问题一起发送，生成有依据的回答。本地阅读始终作为回退。\n\n好的第一条笔记小而具体——一个判断、一个问题，或一句你想留下的话。不必写出完整论证。Weft 需要先看到边缘，才能找到形状。',
+      ),
       sources: [],
-      followUps: ['Give me a first prompt', 'How does Weft work?'],
+      followUps: [],
     };
   }
 
-  if (/(summar|throughline|thesis|argument|mean|point|overview|read)/.test(q)) {
+  if (!board.notes.length) {
+    return {
+      text: pick(
+        locale,
+        'A blank canvas is still a useful place to begin. Add one thought — even a bad one — and I’ll begin weaving it into the rest.',
+        '空白画布也是开始的好地方。先写下一条——哪怕不完美——我会把它织进其余的想法里。',
+      ),
+      sources: [],
+      followUps: [
+        pick(locale, 'Give me a first prompt', '给我一个开头提示'),
+        pick(locale, 'How does Weft work?', 'Weft 是怎么工作的？'),
+      ],
+    };
+  }
+
+  if (
+    /(summar|throughline|thesis|argument|mean|point|overview|read)/.test(q) ||
+    /(总结|概括|主线|论点|主旨|大意|讲了什么|读起来|意思|观点)/.test(q)
+  ) {
     const threadLines = analysis.threads
       .slice(0, 3)
       .map((thread, index) => {
         const source = board.notes.find((note) => note.id === thread.noteIds[0]);
+        if (locale === 'zh') {
+          return `${['首先', '然后', '还有'][index] ?? '另外'}，${thread.label}——${thread.summary.replace(/[。.]$/, '')}。${source ? `“${source.text}”` : ''}`;
+        }
         return `${['First', 'Then', 'And'][index] ?? 'Also'}, ${thread.label.toLowerCase()} — ${thread.summary.replace(/\.$/, '').toLowerCase()}.${source ? ` “${source.text}”` : ''}`;
       })
       .join('\n\n');
     return {
-      text: `${analysis.throughline}\n\n${threadLines}\n\nThe useful tension is ${analysis.tension.toLowerCase()}`,
+      text: pick(
+        locale,
+        `${analysis.throughline}\n\n${threadLines}\n\nThe useful tension is ${analysis.tension.toLowerCase()}`,
+        `${analysis.throughline}\n\n${threadLines}\n\n真正有用的张力在于：${analysis.tension}`,
+      ),
       sources: sourcesForThreads,
-      followUps: ['Where is the tension?', 'What should I do next?', 'Turn this into a brief'],
+      followUps: [
+        translate(locale, 'prompt.tension'),
+        translate(locale, 'prompt.next'),
+        translate(locale, 'prompt.brief'),
+      ],
     };
   }
 
-  if (/(tension|conflict|contradict|oppos|friction|against)/.test(q)) {
+  if (
+    /(tension|conflict|contradict|oppos|friction|against)/.test(q) ||
+    /(张力|矛盾|冲突|对立|摩擦|相反|分歧|对抗)/.test(q)
+  ) {
     const first = analysis.threads[0];
     const second = analysis.threads[1];
     const sides =
       first && second
-        ? `\n\n${first.label} holds one side of it — ${first.summary.replace(/\.$/, '').toLowerCase()}. ${second.label} holds the other — ${second.summary.replace(/\.$/, '').toLowerCase()}.`
+        ? pick(
+            locale,
+            `\n\n${first.label} holds one side of it — ${first.summary.replace(/\.$/, '').toLowerCase()}. ${second.label} holds the other — ${second.summary.replace(/\.$/, '').toLowerCase()}.`,
+            `\n\n${first.label}占着一侧——${first.summary.replace(/[。.]$/, '')}。${second.label}占着另一侧——${second.summary.replace(/[。.]$/, '')}。`,
+          )
         : '';
     return {
-      text: `${analysis.tensionTitle}: ${analysis.tension}${sides}\n\nThe contradiction is productive. The gap between those positions is where the next decision lives.`,
+      text: pick(
+        locale,
+        `${analysis.tensionTitle}: ${analysis.tension}${sides}\n\nThe contradiction is productive. The gap between those positions is where the next decision lives.`,
+        `${analysis.tensionTitle}：${analysis.tension}${sides}\n\n这种矛盾是有生产力的。两种立场之间的空隙，正是下一个决定生长的地方。`,
+      ),
       sources: sourcesForThreads.slice(0, 4),
-      followUps: ['What should I do next?', 'Draft a thesis from this', 'What question is missing?'],
+      followUps: [
+        translate(locale, 'prompt.next'),
+        pick(locale, 'Draft a thesis from this', '从这里提炼一个论点'),
+        translate(locale, 'prompt.missing'),
+      ],
     };
   }
 
-  if (/(next|should|do|action|experiment|prototype|test|move)/.test(q)) {
+  if (
+    /(next|should|action|experiment|prototype|test|move)/.test(q) ||
+    /(下一步|接下来|该做|行动|实验|验证|原型|测试|推进|怎么办)/.test(q)
+  ) {
     return {
-      text: `You have enough material to make this testable.\n\nTurn the open question into one small probe: ${analysis.openQuestion}\n\nBefore you begin, write down what you expect to see and the shortest piece of evidence that would prove you wrong. Keep it to a week. The point isn’t to confirm the thesis — it’s to find the edge where it breaks.\n\nWrite it as a one-line bet: “${analysis.tensionTitle} is the real constraint here.”`,
+      text: pick(
+        locale,
+        `You have enough material to make this testable.\n\nTurn the open question into one small probe: ${analysis.openQuestion}\n\nBefore you begin, write down what you expect to see and the shortest piece of evidence that would prove you wrong. Keep it to a week. The point isn’t to confirm the thesis — it’s to find the edge where it breaks.\n\nWrite it as a one-line bet: “${analysis.tensionTitle} is the real constraint here.”`,
+        `你已经有足够的材料，可以把它变成一次可验证的尝试。\n\n把开放问题变成一个小实验：${analysis.openQuestion}\n\n开始之前，写下你预期看到什么，以及能证明你错了的最短证据。给它一周时间。重点不是确认假设，而是找到它开始破裂的边缘。\n\n把它写成一句话的赌注：“${analysis.tensionTitle}才是这里真正的约束。”`,
+      ),
       sources: sourcesForThreads.slice(0, 3),
-      followUps: ['Where is the tension?', 'What would change my mind?', 'Draft a working brief'],
+      followUps: [
+        translate(locale, 'prompt.tension'),
+        translate(locale, 'prompt.mind'),
+        pick(locale, 'Draft a working brief', '起草一份工作简报'),
+      ],
     };
   }
 
-  if (/(connect|link|relat|between)/.test(q)) {
+  if (
+    /(connect|link|relat|between)/.test(q) ||
+    /(连接|联系|关联|关系|之间)/.test(q)
+  ) {
     const first = analysis.threads[0];
     const second = analysis.threads[1];
     if (first && second) {
       return {
-        text: `${first.label} and ${second.label} are two sides of the same move.\n\n${first.summary}\n\n${second.summary}\n\nThe bridge is not a third idea. It is the question both threads are already answering: ${analysis.openQuestion}`,
-        sources: [...pickThreadSources(first, board.notes), ...pickThreadSources(second, board.notes)].slice(0, 4),
-        followUps: ['What’s the throughline?', 'Where is the tension?', 'What should I do next?'],
+        text: pick(
+          locale,
+          `${first.label} and ${second.label} are two sides of the same move.\n\n${first.summary}\n\n${second.summary}\n\nThe bridge is not a third idea. It is the question both threads are already answering: ${analysis.openQuestion}`,
+          `${first.label}和${second.label}是同一个动作的两面。\n\n${first.summary}\n\n${second.summary}\n\n桥并不是第三个想法。它就是两条线索早已在共同回答的问题：${analysis.openQuestion}`,
+        ),
+        sources: [
+          ...pickThreadSources(first, board.notes),
+          ...pickThreadSources(second, board.notes),
+        ].slice(0, 4),
+        followUps: [
+          translate(locale, 'prompt.throughline'),
+          translate(locale, 'prompt.tension'),
+          translate(locale, 'prompt.next'),
+        ],
       };
     }
   }
 
-  if (/(missing|question|gap|blind|unknown)/.test(q)) {
+  if (
+    /(missing|question|gap|blind|unknown)/.test(q) ||
+    /(缺少|缺什么|问题|盲点|空白|未知|遗漏|反方)/.test(q)
+  ) {
     return {
-      text: `The canvas is missing a counter-voice.\n\nThe notes currently lean toward: ${analysis.throughline} Add the strongest note you can that argues against that position — not a straw man, but the version a thoughtful critic would make. The map gets more useful when it can hold a real disagreement.\n\nOne place to start: ${analysis.openQuestion}`,
+      text: pick(
+        locale,
+        `The canvas is missing a counter-voice.\n\nThe notes currently lean toward: ${analysis.throughline} Add the strongest note you can that argues against that position — not a straw man, but the version a thoughtful critic would make. The map gets more useful when it can hold a real disagreement.\n\nOne place to start: ${analysis.openQuestion}`,
+        `这块画布缺少一个反方声音。\n\n目前的笔记更倾向于：${analysis.throughline} 加上一条你能写出的最强反论——不是稻草人，而是一位有思想的批评者会提出的版本。当地图能容纳真正的分歧时，它才更有用。\n\n一个开始的地方：${analysis.openQuestion}`,
+      ),
       sources: analysis.threads.flatMap((thread) => thread.noteIds.slice(0, 1)),
-      followUps: ['Where is the tension?', 'What should I do next?'],
+      followUps: [
+        translate(locale, 'prompt.tension'),
+        translate(locale, 'prompt.next'),
+      ],
     };
   }
 
-  return retrievalAnswer(query, board, analysis);
+  return retrievalAnswer(query, board, analysis, locale);
 }
 
 export function estimateNoteHeight(note: Note): number {
-  const textLength = note.text.length;
-  const lineLength = note.kind === 'quote' || note.kind === 'question' ? 34 : 38;
-  const lines = Math.max(2, Math.ceil(textLength / lineLength));
-  const lineHeight = note.kind === 'quote' || note.kind === 'question' ? 23 : 21;
-  return 62 + lines * lineHeight;
+  const cjkCount = (note.text.match(/[\u3400-\u9fff]/g) ?? []).length;
+  const cjk = cjkCount > 0;
+  const capacity =
+    note.kind === 'quote' || note.kind === 'question'
+      ? cjk
+        ? 10
+        : 23
+      : note.kind === 'source'
+        ? cjk
+          ? 11
+          : 23
+        : cjk
+          ? 13
+          : 27;
+  const lines = Math.max(2, Math.ceil(note.text.length / capacity));
+  const lineHeight =
+    note.kind === 'quote' || note.kind === 'question'
+      ? cjk
+        ? 28.5
+        : 24.8
+      : note.kind === 'source'
+        ? cjk
+          ? 22.4
+          : 20.2
+        : cjk
+          ? 24.5
+          : 21.6;
+  return 96 + lines * lineHeight + (note.author ? 26 : 0);
 }
 
 export function assignThread(board: Board, text: string): { threadId: string; created: boolean } {

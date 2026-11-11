@@ -1,6 +1,8 @@
 import { BookOpen, HelpCircle, Lightbulb, Quote, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Board, Note, NoteKind } from '../types';
+import type { MessageKey } from '../messages';
+import { useI18n } from '../i18n-context';
 
 interface ComposerModalProps {
   open: boolean;
@@ -10,14 +12,45 @@ interface ComposerModalProps {
   onSave: (payload: { text: string; kind: NoteKind; author?: string }) => void;
 }
 
-const kinds: { id: NoteKind; label: string; icon: React.ReactNode; hint: string }[] = [
-  { id: 'thought', label: 'Thought', icon: <Lightbulb size={14} />, hint: 'A half-formed idea' },
-  { id: 'question', label: 'Question', icon: <HelpCircle size={14} />, hint: 'Something to investigate' },
-  { id: 'quote', label: 'Quote', icon: <Quote size={14} />, hint: 'Words worth keeping' },
-  { id: 'source', label: 'Source', icon: <BookOpen size={14} />, hint: 'Evidence or reference' },
+const kinds: {
+  id: NoteKind;
+  labelKey: MessageKey;
+  icon: React.ReactNode;
+  hintKey: MessageKey;
+  placeholderKey: MessageKey;
+}[] = [
+  {
+    id: 'thought',
+    labelKey: 'noteKind.thought',
+    icon: <Lightbulb size={14} />,
+    hintKey: 'composer.kindHint.thought',
+    placeholderKey: 'composer.placeholder.thought',
+  },
+  {
+    id: 'question',
+    labelKey: 'noteKind.question',
+    icon: <HelpCircle size={14} />,
+    hintKey: 'composer.kindHint.question',
+    placeholderKey: 'composer.placeholder.question',
+  },
+  {
+    id: 'quote',
+    labelKey: 'noteKind.quote',
+    icon: <Quote size={14} />,
+    hintKey: 'composer.kindHint.quote',
+    placeholderKey: 'composer.placeholder.quote',
+  },
+  {
+    id: 'source',
+    labelKey: 'noteKind.source',
+    icon: <BookOpen size={14} />,
+    hintKey: 'composer.kindHint.source',
+    placeholderKey: 'composer.placeholder.source',
+  },
 ];
 
 export function ComposerModal({ open, editingNote, board, onClose, onSave }: ComposerModalProps) {
+  const { t } = useI18n();
   const [kind, setKind] = useState<NoteKind>(editingNote?.kind ?? 'thought');
   const [text, setText] = useState(editingNote?.text ?? '');
   const [author, setAuthor] = useState(editingNote?.author ?? '');
@@ -48,13 +81,15 @@ export function ComposerModal({ open, editingNote, board, onClose, onSave }: Com
 
   return (
     <div className="modal-backdrop composer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="composer-modal" role="dialog" aria-modal="true" aria-label="Compose note">
+      <div className="composer-modal" role="dialog" aria-modal="true" aria-label={t('composer.aria')}>
         <div className="composer-head">
           <div>
-            <span className="modal-eyebrow">{editingNote ? 'Edit note' : 'New note'}</span>
-            <h2>{editingNote ? 'Refine the thought.' : 'What’s on your mind?'}</h2>
+            <span className="modal-eyebrow">
+              {editingNote ? t('composer.edit') : t('composer.new')}
+            </span>
+            <h2>{editingNote ? t('composer.editTitle') : t('composer.newTitle')}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close">
+          <button className="icon-button" onClick={onClose} aria-label={t('composer.close')}>
             <X size={17} />
           </button>
         </div>
@@ -68,8 +103,8 @@ export function ComposerModal({ open, editingNote, board, onClose, onSave }: Com
             >
               <span className="kind-option-icon">{item.icon}</span>
               <span className="kind-option-copy">
-                <strong>{item.label}</strong>
-                <small>{item.hint}</small>
+                <strong>{t(item.labelKey)}</strong>
+                <small>{t(item.hintKey)}</small>
               </span>
             </button>
           ))}
@@ -80,30 +115,33 @@ export function ComposerModal({ open, editingNote, board, onClose, onSave }: Com
             ref={textareaRef}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder={
-              kind === 'question'
-                ? 'Ask the question underneath the question…'
-                : kind === 'quote'
-                  ? 'Paste the words you want to keep…'
-                  : kind === 'source'
-                    ? 'Add a piece of evidence, a statistic, or a reference…'
-                    : 'Start anywhere. A fragment is enough.'
-            }
+            placeholder={t(
+              kinds.find((item) => item.id === kind)?.placeholderKey ??
+                'composer.placeholder.thought',
+            )}
             rows={5}
           />
           <div className="textarea-meta">
-            <span>{text.length} characters</span>
-            <span>{board.threads.length ? 'Weft will find the nearest thread' : 'This will start a new thread'}</span>
+            <span>{t('composer.characters', { count: text.length })}</span>
+            <span>
+              {board.threads.length
+                ? t('composer.nearestThread')
+                : t('composer.newThread')}
+            </span>
           </div>
         </div>
 
         {showAuthor && (
           <label className="author-field">
-            <span>{kind === 'quote' ? 'Attribution' : 'Source'}</span>
+            <span>{kind === 'quote' ? t('composer.attribution') : t('composer.source')}</span>
             <input
               value={author}
               onChange={(event) => setAuthor(event.target.value)}
-              placeholder={kind === 'quote' ? 'Who said it?' : 'Where is this from?'}
+              placeholder={
+                kind === 'quote'
+                  ? t('composer.attributionPlaceholder')
+                  : t('composer.sourcePlaceholder')
+              }
             />
           </label>
         )}
@@ -112,18 +150,18 @@ export function ComposerModal({ open, editingNote, board, onClose, onSave }: Com
           <span className="composer-hint">
             <kbd>⌘</kbd>
             <kbd>↵</kbd>
-            to save
+            {t('composer.toSave')}
           </span>
           <div className="composer-actions">
             <button className="ghost-button" onClick={onClose}>
-              Cancel
+              {t('composer.cancel')}
             </button>
             <button
               className="primary-button"
               disabled={!text.trim()}
               onClick={() => onSave({ text: text.trim(), kind, author: author.trim() || undefined })}
             >
-              {editingNote ? 'Save changes' : 'Add to canvas'}
+              {editingNote ? t('composer.saveChanges') : t('composer.add')}
             </button>
           </div>
         </div>

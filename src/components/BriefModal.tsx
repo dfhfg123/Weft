@@ -1,7 +1,9 @@
 import { Check, Copy, Download, FileText, Sparkles, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildBriefContent } from '../brief';
 import type { Analysis, Board } from '../types';
+import { countUnit } from '../messages';
+import { useI18n } from '../i18n-context';
 
 interface BriefModalProps {
   open: boolean;
@@ -11,15 +13,23 @@ interface BriefModalProps {
   onToast: (message: string) => void;
 }
 
-const dateLabel = new Date().toLocaleDateString('en-US', {
-  month: 'long',
-  day: 'numeric',
-  year: 'numeric',
-});
-
 export function BriefModal({ open, board, analysis, onClose, onToast }: BriefModalProps) {
+  const { t, locale, formatDate } = useI18n();
+  const dateLabel = formatDate();
   const [copied, setCopied] = useState(false);
-  const brief = useMemo(() => buildBriefContent(board, analysis, dateLabel), [analysis, board]);
+  const brief = useMemo(
+    () => buildBriefContent(board, analysis, dateLabel, locale),
+    [analysis, board, dateLabel, locale],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose, open]);
 
   if (!open) return null;
 
@@ -27,10 +37,10 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
     try {
       await navigator.clipboard.writeText(brief.markdown);
       setCopied(true);
-      onToast('Brief copied to clipboard');
+      onToast(t('brief.toastCopied'));
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
-      onToast('Could not access the clipboard');
+      onToast(t('brief.toastClipboard'));
     }
   };
 
@@ -39,34 +49,38 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${board.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-brief.md`;
+    const slug = board.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    anchor.download = `${slug || 'weft'}-brief.md`;
     anchor.click();
     URL.revokeObjectURL(url);
-    onToast('Brief downloaded');
+    onToast(t('brief.toastDownloaded'));
   };
 
   return (
     <div className="modal-backdrop brief-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="brief-modal" role="dialog" aria-modal="true" aria-label="Working brief">
+      <div className="brief-modal" role="dialog" aria-modal="true" aria-label={t('brief.aria')}>
         <div className="brief-toolbar">
           <div className="brief-toolbar-label">
             <FileText size={14} />
-            Working brief
+            {t('brief.working')}
             <span className="brief-ai">
               <Sparkles size={10} />
-              on-device
+              {t('brief.onDevice')}
             </span>
           </div>
           <div className="brief-toolbar-actions">
             <button className="ghost-button small" onClick={copy}>
               {copied ? <Check size={13} /> : <Copy size={13} />}
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? t('brief.copied') : t('brief.copy')}
             </button>
             <button className="ghost-button small" onClick={download}>
               <Download size={13} />
-              Download
+              {t('brief.download')}
             </button>
-            <button className="icon-button" onClick={onClose} aria-label="Close brief">
+            <button className="icon-button" onClick={onClose} aria-label={t('brief.close')}>
               <X size={16} />
             </button>
           </div>
@@ -74,30 +88,39 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
 
         <div className="brief-paper">
           <div className="brief-header">
-            <div className="brief-kicker">Weft synthesis · {dateLabel}</div>
+            <div className="brief-kicker">{t('brief.kicker', { date: dateLabel })}</div>
             <h1>{board.name}</h1>
             <p className="brief-deck">
-              {analysis.noteCount} notes, {analysis.threads.length} threads, and one working theory.
+              {t('brief.deck', {
+                notes: `${analysis.noteCount} ${countUnit(locale, 'note', analysis.noteCount)}`,
+                threads: `${analysis.threads.length} ${countUnit(
+                  locale,
+                  'thread',
+                  analysis.threads.length,
+                )}`,
+              })}
             </p>
           </div>
 
           <div className="brief-rule" />
 
           <section className="brief-throughline">
-            <span className="brief-label">The throughline</span>
+            <span className="brief-label">{t('brief.throughline')}</span>
             <blockquote>{analysis.throughline}</blockquote>
           </section>
 
           <section className="brief-section">
             <div className="brief-section-head">
               <span className="brief-number">01</span>
-              <h2>What the canvas is saying</h2>
+              <h2>{t('brief.section1')}</h2>
             </div>
             <p className="brief-lede">
-              Read together, these notes keep returning to{' '}
-              {analysis.threads[0]?.label.toLowerCase() ?? 'a shape still forming'}. Each thread
-              sharpens a different edge of the same working theory — and this brief holds the
-              disagreement rather than smoothing it away.
+              {t('brief.lede', {
+                thread:
+                  locale === 'zh'
+                    ? `「${analysis.threads[0]?.label ?? '仍在形成的形状'}」`
+                    : (analysis.threads[0]?.label.toLowerCase() ?? 'a shape still forming'),
+              })}
             </p>
             <div className="brief-thread-grid">
               {brief.threads.map((thread, index) => (
@@ -107,7 +130,12 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
                   </span>
                   <h3>{thread.label}</h3>
                   <p>{thread.summary}</p>
-                  <span className="brief-thread-count">{thread.noteIds.length} notes</span>
+                  <span className="brief-thread-count">
+                    {t('panel.threadNotes', {
+                      count: thread.noteIds.length,
+                      unit: countUnit(locale, 'note', thread.noteIds.length),
+                    })}
+                  </span>
                 </div>
               ))}
             </div>
@@ -116,7 +144,7 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
           <section className="brief-section">
             <div className="brief-section-head">
               <span className="brief-number">02</span>
-              <h2>The live tension</h2>
+              <h2>{t('brief.section2')}</h2>
             </div>
             <div className="brief-tension">
               <h3>{analysis.tensionTitle}</h3>
@@ -127,7 +155,7 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
           <section className="brief-section">
             <div className="brief-section-head">
               <span className="brief-number">03</span>
-              <h2>The open question</h2>
+              <h2>{t('brief.section3')}</h2>
             </div>
             <p className="brief-question">{analysis.openQuestion}</p>
           </section>
@@ -135,7 +163,7 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
           <section className="brief-section">
             <div className="brief-section-head">
               <span className="brief-number">04</span>
-              <h2>Next probes</h2>
+              <h2>{t('brief.section4')}</h2>
             </div>
             <ol className="brief-probes">
               {brief.probes.map((probe) => (
@@ -147,7 +175,7 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
           <section className="brief-section brief-sources">
             <div className="brief-section-head">
               <span className="brief-number">05</span>
-              <h2>Sources on the canvas</h2>
+              <h2>{t('brief.section5')}</h2>
             </div>
             <div className="brief-source-list">
               {brief.sources.map((note, index) => (
@@ -164,7 +192,7 @@ export function BriefModal({ open, board, analysis, onClose, onToast }: BriefMod
 
           <div className="brief-footer">
             <span className="brief-footer-mark">weft</span>
-            <span>Drafted on-device · {dateLabel}</span>
+            <span>{t('brief.footer', { date: dateLabel })}</span>
           </div>
         </div>
       </div>

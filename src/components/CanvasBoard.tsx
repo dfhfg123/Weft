@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Analysis, Board, Note } from '../types';
 import { estimateNoteHeight } from '../ai';
 import { NoteCard } from './NoteCard';
+import { useI18n } from '../i18n-context';
 
 interface CanvasBoardProps {
   board: Board;
@@ -30,6 +31,7 @@ interface CanvasBoardProps {
   onArrange: () => void;
   onQuickAdd: (text: string) => void;
   onOpenComposer: () => void;
+  panelOpen: boolean;
 }
 
 interface View {
@@ -61,7 +63,9 @@ export function CanvasBoard({
   onArrange,
   onQuickAdd,
   onOpenComposer,
+  panelOpen,
 }: CanvasBoardProps) {
+  const { t } = useI18n();
   const viewportRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ x: 0, y: 0, z: 0.88 });
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
@@ -318,7 +322,7 @@ export function CanvasBoard({
   };
 
   return (
-    <main className="canvas-area">
+    <main className={`canvas-area ${panelOpen ? 'panel-open' : ''}`}>
       <div
         ref={viewportRef}
         className={`canvas-viewport ${panning ? 'panning' : ''}`}
@@ -437,23 +441,27 @@ export function CanvasBoard({
             <Sparkles size={13} />
           </span>
           <span>
-            <strong>{analysis.noteCount}</strong> notes
+            <strong>{analysis.noteCount}</strong>{' '}
+            {t(analysis.noteCount === 1 ? 'unit.noteOne' : 'unit.noteMany')}
           </span>
           <i />
           <span>
-            <strong>{analysis.threads.length}</strong> threads
+            <strong>{analysis.threads.length}</strong>{' '}
+            {t(
+              analysis.threads.length === 1 ? 'unit.threadOne' : 'unit.threadMany',
+            )}
           </span>
           <span className="stats-live">
             <i />
-            live
+            {t('canvas.live')}
           </span>
         </div>
 
         {focusThread && (
           <div className="focus-pill canvas-ui" style={{ '--thread-color': focusThread.color } as React.CSSProperties}>
             <span className="focus-pill-dot" />
-            Tracing <strong>{focusThread.label}</strong>
-            <button onClick={() => onFocusThread(null)} aria-label="Clear thread focus">
+            {t('canvas.tracingLead')} <strong>{focusThread.label}</strong>
+            <button onClick={() => onFocusThread(null)} aria-label={t('canvas.clearThread')}>
               <X size={13} />
             </button>
           </div>
@@ -461,36 +469,36 @@ export function CanvasBoard({
 
         {selectedNote && !focusThread && (
           <div className="focus-pill canvas-ui neutral">
-            Note {noteNumber(selectedNote.id)}
+            {t('canvas.note', { number: noteNumber(selectedNote.id) })}
             <span className="focus-pill-text">{selectedNote.text.slice(0, 48)}{selectedNote.text.length > 48 ? '…' : ''}</span>
-            <button onClick={() => onSelectNote(null)} aria-label="Clear note selection">
+            <button onClick={() => onSelectNote(null)} aria-label={t('canvas.clearNote')}>
               <X size={13} />
             </button>
           </div>
         )}
 
         <div className="canvas-controls canvas-ui">
-          <button onClick={() => zoomBy(0.86)} aria-label="Zoom out">
+          <button onClick={() => zoomBy(0.86)} aria-label={t('canvas.zoomOut')}>
             <Minus size={15} />
           </button>
-          <button className="zoom-readout" onClick={fitView} aria-label="Fit canvas">
+          <button className="zoom-readout" onClick={fitView} aria-label={t('canvas.fit')}>
             {Math.round(view.z * 100)}%
           </button>
-          <button onClick={() => zoomBy(1.16)} aria-label="Zoom in">
+          <button onClick={() => zoomBy(1.16)} aria-label={t('canvas.zoomIn')}>
             <Plus size={15} />
           </button>
           <span className="control-divider" />
-          <button onClick={fitView} aria-label="Fit canvas" data-tooltip="Fit">
+          <button onClick={fitView} aria-label={t('canvas.fit')} data-tooltip={t('canvas.fitTooltip')}>
             <Maximize2 size={14} />
           </button>
-          <button onClick={onArrange} aria-label="Tidy canvas" data-tooltip="Tidy">
+          <button onClick={onArrange} aria-label={t('canvas.tidy')} data-tooltip={t('canvas.tidyTooltip')}>
             <Grid2X2 size={14} />
           </button>
         </div>
 
         <div className="canvas-hint canvas-ui">
           <MousePointer2 size={12} />
-          Drag notes · Scroll to move · ⌘ + scroll to zoom
+          {t('canvas.hint')}
         </div>
 
         <form className="quick-capture canvas-ui" onSubmit={submitQuick}>
@@ -498,7 +506,7 @@ export function CanvasBoard({
             type="button"
             className="quick-plus"
             onClick={onOpenComposer}
-            aria-label="Open full composer"
+            aria-label={t('canvas.openComposer')}
           >
             <Plus size={17} />
           </button>
@@ -509,16 +517,20 @@ export function CanvasBoard({
             onKeyDown={(event) => {
               if (event.key === 'Escape') event.currentTarget.blur();
             }}
-            placeholder={board.notes.length ? 'Capture a thought — press ↵ to weave it in' : 'Add your first thought…'}
-            aria-label="Quick capture"
+            placeholder={
+              board.notes.length
+                ? t('canvas.quickPlaceholder')
+                : t('canvas.quickPlaceholderEmpty')
+            }
+            aria-label={t('canvas.quickCapture')}
           />
           <span className="quick-shortcut">N</span>
-          <button className="quick-submit" type="submit" disabled={!quickText.trim()} aria-label="Add note">
+          <button className="quick-submit" type="submit" disabled={!quickText.trim()} aria-label={t('canvas.addNote')}>
             <ArrowUp size={16} />
           </button>
         </form>
 
-        <button className="canvas-focus-button canvas-ui" onClick={fitView} aria-label="Center canvas">
+        <button className="canvas-focus-button canvas-ui" onClick={fitView} aria-label={t('canvas.center')}>
           <Focus size={15} />
         </button>
 
@@ -527,13 +539,15 @@ export function CanvasBoard({
             <span className="empty-mark">
               <Sparkles size={16} />
             </span>
-            <p className="eyebrow">A blank canvas</p>
-            <h2>A blank thread<br />is still a beginning.</h2>
-            <p className="empty-copy">
-              Write one honest thought. Weft will find what it touches, name the pattern, and keep the map alive as you think.
-            </p>
+            <p className="eyebrow">{t('canvas.emptyEyebrow')}</p>
+            <h2>
+              {t('canvas.emptyTitleA')}
+              <br />
+              {t('canvas.emptyTitleB')}
+            </h2>
+            <p className="empty-copy">{t('canvas.emptyCopy')}</p>
             <button className="empty-action" onClick={onOpenComposer}>
-              Add your first thought
+              {t('canvas.emptyAction')}
               <ArrowUp size={14} />
             </button>
           </div>

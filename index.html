@@ -6,8 +6,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f6f2e8" />
     <meta name="color-scheme" content="light" />
-    <meta name="description" content="Weft is a calm canvas for thinking. Pin fragments, find the threads between them, and weave a working brief — entirely on your device." />
+    <meta name="description" content="Weft is a calm canvas for thinking. Pin fragments, find the threads between them, and ask a model to read the canvas with you — then weave a working brief." />
     <title>Weft — a calm canvas for thinking</title>
+    <script>
+      (function () {
+        var locale = null;
+        try { locale = localStorage.getItem('weft.locale'); } catch (error) {}
+        if (locale !== 'zh' && locale !== 'en') {
+          var languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+          locale = languages.some(function (language) {
+            return String(language).toLowerCase().indexOf('zh') === 0;
+          }) ? 'zh' : 'en';
+        }
+        document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
+        if (locale === 'zh') {
+          document.title = 'Weft — 一块安静思考的画布';
+          var description = document.querySelector('meta[name="description"]');
+          if (description) {
+            description.setAttribute('content', 'Weft 是一块安静思考的画布。钉下片段，找到它们之间的线索，让模型与你一起读这张画布，再织成一份工作简报。');
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

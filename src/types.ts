@@ -18,6 +18,7 @@ export interface ThreadMeta {
   short: string;
   summary: string;
   color: string;
+  isDynamic?: boolean;
 }
 
 export interface Board {
@@ -74,4 +75,6 @@ export interface ChatMessage {
   streaming?: boolean;
   question?: string;
   followUps?: string[];
+  engine?: 'model' | 'local';
+  interrupted?: boolean;
 }

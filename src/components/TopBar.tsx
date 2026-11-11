@@ -4,11 +4,14 @@ import {
   Check,
   ChevronRight,
   FileText,
+  Languages,
   PanelRightClose,
   PanelRightOpen,
   Search,
 } from 'lucide-react';
 import type { Board } from '../types';
+import type { Locale } from '../messages';
+import { useI18n } from '../i18n-context';
 import { WeftMark, Wordmark } from './Brand';
 
 interface TopBarProps {
@@ -20,6 +23,8 @@ interface TopBarProps {
   onShare: () => void;
   onRename: (name: string) => void;
   onAccount: () => void;
+  locale: Locale;
+  onToggleLocale: () => void;
 }
 
 export function TopBar({
@@ -31,7 +36,10 @@ export function TopBar({
   onShare,
   onRename,
   onAccount,
+  locale,
+  onToggleLocale,
 }: TopBarProps) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(board.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +71,7 @@ export function TopBar({
       </div>
       <div className="topbar-divider" />
       <div className="topbar-crumbs">
-        <span className="crumb-muted">Canvases</span>
+        <span className="crumb-muted">{t('topbar.canvases')}</span>
         <ChevronRight size={13} className="crumb-chevron" />
         {editing ? (
           <input
@@ -79,10 +87,10 @@ export function TopBar({
                 setEditing(false);
               }
             }}
-            aria-label="Canvas name"
+            aria-label={t('topbar.canvasName')}
           />
         ) : (
-          <button className="crumb-board" onClick={startEditing} title="Rename canvas">
+          <button className="crumb-board" onClick={startEditing} title={t('topbar.renameCanvas')}>
             <i style={{ background: board.color }} />
             {board.name}
           </button>
@@ -91,29 +99,42 @@ export function TopBar({
       <div className="topbar-actions">
         <span className="save-state">
           <Check size={12} strokeWidth={2.6} />
-          Saved locally
+          {t('topbar.saved')}
         </span>
-        <button className="icon-button topbar-search" onClick={onOpenPalette} aria-label="Search canvas">
+        <button className="icon-button topbar-search" onClick={onOpenPalette} aria-label={t('topbar.searchCanvas')}>
           <Search size={16} />
-          <span className="search-hint">Search</span>
+          <span className="search-hint">{t('topbar.search')}</span>
           <kbd>⌘ K</kbd>
         </button>
-        <button className="ghost-button share-button" onClick={onShare} title="Share working brief" aria-label="Share working brief">
-          Share
+        <button className="ghost-button share-button" onClick={onShare}
+          title={t('topbar.shareBrief')}
+          aria-label={t('topbar.shareBrief')}>
+          {t('topbar.share')}
           <ArrowUpRight size={14} />
         </button>
         <button className="brief-button" onClick={onOpenBrief}>
           <FileText size={14} />
-          Draft brief
+          {t('topbar.draftBrief')}
+        </button>
+        <button
+          className="icon-button lang-button"
+          onClick={onToggleLocale}
+          aria-label={
+            locale === 'en' ? t('topbar.switchToChinese') : t('topbar.switchToEnglish')
+          }
+          title={locale === 'en' ? t('topbar.switchToChinese') : t('topbar.switchToEnglish')}
+        >
+          <Languages size={15} />
+          <span className="lang-code">{locale === 'en' ? '中' : 'EN'}</span>
         </button>
         <button
           className="icon-button panel-toggle"
           onClick={onTogglePanel}
-          aria-label={panelOpen ? 'Hide Weft AI' : 'Show Weft AI'}
+          aria-label={panelOpen ? t('topbar.hideAi') : t('topbar.showAi')}
         >
           {panelOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
         </button>
-        <button className="avatar" aria-label="Account" onClick={onAccount}>
+        <button className="avatar" aria-label={t('topbar.account')} onClick={onAccount}>
           <span>MC</span>
           <i />
         </button>

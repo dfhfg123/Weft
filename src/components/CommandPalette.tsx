@@ -3,6 +3,7 @@ import {
   FileText,
   FolderOpen,
   Grid2X2,
+  Languages,
   Layers,
   PanelRight,
   Plus,
@@ -11,7 +12,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Analysis, Board, Note } from '../types';
-import { noteKindLabel } from '../data';
+import type { Locale, MessageKey } from '../messages';
+import { useI18n } from '../i18n-context';
 
 interface PaletteAction {
   id: string;
@@ -34,7 +36,16 @@ interface CommandPaletteProps {
   onTogglePanel: () => void;
   onFocusNote: (note: Note) => void;
   onSelectBoard: (id: string) => void;
+  locale: Locale;
+  onToggleLocale: () => void;
 }
+
+const kindKeys: Record<Note['kind'], MessageKey> = {
+  thought: 'noteKind.thought',
+  question: 'noteKind.question',
+  quote: 'noteKind.quote',
+  source: 'noteKind.source',
+};
 
 interface Row {
   key: string;
@@ -58,42 +69,53 @@ export function CommandPalette({
   onTogglePanel,
   onFocusNote,
   onSelectBoard,
+  locale,
+  onToggleLocale,
 }: CommandPaletteProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const actions = useMemo<PaletteAction[]>(() => {
     const base: PaletteAction[] = [
       {
         id: 'new-note',
-        label: 'New note',
+        label: t('palette.newNote'),
         hint: 'N',
         icon: <Plus size={15} />,
         action: onNewNote,
       },
       {
         id: 'new-canvas',
-        label: 'New canvas',
+        label: t('palette.newCanvas'),
         hint: '⌘⇧N',
         icon: <FolderOpen size={15} />,
         action: onNewCanvas,
       },
       {
         id: 'brief',
-        label: 'Draft a working brief',
+        label: t('palette.brief'),
         icon: <FileText size={15} />,
         action: onOpenBrief,
       },
       {
         id: 'tidy',
-        label: 'Tidy canvas by meaning',
+        label: t('palette.tidy'),
         icon: <Grid2X2 size={15} />,
         action: onTidy,
       },
       {
         id: 'panel',
-        label: 'Toggle Weft AI',
+        label: t('palette.togglePanel'),
         icon: <PanelRight size={15} />,
         action: onTogglePanel,
+      },
+      {
+        id: 'language',
+        label:
+          locale === 'en' ? t('topbar.switchToChinese') : t('topbar.switchToEnglish'),
+        hint: t('palette.language', { language: locale === 'en' ? 'English' : '中文' }),
+        icon: <Languages size={15} />,
+        action: onToggleLocale,
       },
     ];
     boards
@@ -101,14 +123,31 @@ export function CommandPalette({
       .forEach((item) => {
         base.push({
           id: `board-${item.id}`,
-          label: `Open canvas: ${item.name}`,
-          hint: `${item.notes.length} notes`,
+          label: t('palette.openCanvas', { name: item.name }),
+          hint: t('palette.notesCount', {
+            count: item.notes.length,
+            unit: t(
+              item.notes.length === 1 ? 'unit.noteOne' : 'unit.noteMany',
+            ),
+          }),
           icon: <Layers size={15} />,
           action: () => onSelectBoard(item.id),
         });
       });
     return base;
-  }, [board.id, boards, onNewNote, onNewCanvas, onOpenBrief, onTidy, onTogglePanel, onSelectBoard]);
+  }, [
+    board.id,
+    boards,
+    locale,
+    onNewNote,
+    onNewCanvas,
+    onOpenBrief,
+    onTidy,
+    onTogglePanel,
+    onSelectBoard,
+    onToggleLocale,
+    t,
+  ]);
 
   const rows = useMemo<Row[]>(() => {
     const normalized = query.trim().toLowerCase();
@@ -129,12 +168,17 @@ export function CommandPalette({
         key: note.id,
         type: 'note' as const,
         label: note.text,
-        hint: `${noteKindLabel[note.kind]} · ${analysis.threads.find((thread) => thread.id === note.threadId)?.short ?? 'Thread'}`,
+        hint: t('palette.noteHint', {
+          kind: t(kindKeys[note.kind]),
+          thread:
+            analysis.threads.find((thread) => thread.id === note.threadId)?.short ??
+            t('note.unsorted'),
+        }),
         icon: <Sparkles size={14} />,
         run: () => onFocusNote(note),
       }));
     return [...actionRows, ...noteRows].slice(0, 12);
-  }, [actions, analysis.threads, board.notes, onFocusNote, query]);
+  }, [actions, analysis.threads, board.notes, onFocusNote, query, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,7 +211,7 @@ export function CommandPalette({
 
   return (
     <div className="modal-backdrop palette-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div className="command-palette" role="dialog" aria-modal="true" aria-label={t('palette.aria')}>
         <div className="palette-search">
           <Search size={17} />
           <input
@@ -177,8 +221,8 @@ export function CommandPalette({
               setQuery(event.target.value);
               setActive(0);
             }}
-            placeholder="Search notes, jump to a canvas, or run a command…"
-            aria-label="Search"
+            placeholder={t('palette.placeholder')}
+            aria-label={t('palette.searchAria')}
           />
           <kbd>esc</kbd>
         </div>
@@ -186,14 +230,18 @@ export function CommandPalette({
           {rows.length === 0 && (
             <div className="palette-empty">
               <Sparkles size={16} />
-              <p>No notes match “{query}”</p>
-              <span>Try a word, an author, or a question.</span>
+              <p>{t('palette.empty', { query })}</p>
+              <span>{t('palette.emptyHint')}</span>
             </div>
           )}
           {rows.map((row, index) => (
             <div key={row.key}>
-              {index === firstNoteIndex && <div className="palette-section-label">Notes on this canvas</div>}
-              {index === 0 && firstNoteIndex !== 0 && <div className="palette-section-label">Actions</div>}
+              {index === firstNoteIndex && (
+                <div className="palette-section-label">{t('palette.notes')}</div>
+              )}
+              {index === 0 && firstNoteIndex !== 0 && (
+                <div className="palette-section-label">{t('palette.actions')}</div>
+              )}
               <button
                 className={`palette-row ${active === index ? 'active' : ''}`}
                 onMouseEnter={() => setActive(index)}
@@ -214,15 +262,15 @@ export function CommandPalette({
           <span>
             <kbd>↑</kbd>
             <kbd>↓</kbd>
-            navigate
+            {t('palette.navigate')}
           </span>
           <span>
             <kbd>↵</kbd>
-            open
+            {t('palette.open')}
           </span>
           <span className="palette-brand">
             <Sparkles size={11} />
-            Weft command
+            {t('palette.command')}
           </span>
         </div>
       </div>

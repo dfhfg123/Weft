@@ -1,9 +1,13 @@
 import { ArrowUpRight, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeBoard, assignThread, createThreadMeta, estimateNoteHeight } from './ai';
+import { mergeInsight } from './ai-client';
 import { buildBriefContent } from './brief';
-import { initialWorkspace, noteKindLabel, threadPalette } from './data';
+import { initialWorkspaceFor, localizeWorkspace, threadPalette } from './data';
 import type { Board, Note, NoteKind, Workspace } from './types';
+import type { Locale, MessageKey } from './messages';
+import { useI18n } from './i18n-context';
+import { useBoardInsight } from './use-insight';
 import { BriefModal } from './components/BriefModal';
 import { CanvasBoard } from './components/CanvasBoard';
 import { CommandPalette } from './components/CommandPalette';
@@ -15,21 +19,28 @@ import './styles.css';
 
 const STORAGE_KEY = 'weft.workspace.v2';
 
-function cloneInitial(): Workspace {
-  return structuredClone(initialWorkspace);
+const kindKeys: Record<NoteKind, MessageKey> = {
+  thought: 'noteKind.thought',
+  question: 'noteKind.question',
+  quote: 'noteKind.quote',
+  source: 'noteKind.source',
+};
+
+function cloneInitial(locale: Locale): Workspace {
+  return structuredClone(initialWorkspaceFor(locale));
 }
 
-function loadWorkspace(): Workspace {
+function loadWorkspace(locale: Locale): Workspace {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return cloneInitial();
+    if (!stored) return cloneInitial(locale);
     const parsed = JSON.parse(stored) as Workspace;
-    if (!parsed?.boards?.length || !parsed.activeBoardId) return cloneInitial();
+    if (!parsed?.boards?.length || !parsed.activeBoardId) return cloneInitial(locale);
     const activeExists = parsed.boards.some((board) => board.id === parsed.activeBoardId);
     if (!activeExists) parsed.activeBoardId = parsed.boards[0].id;
-    return parsed;
+    return localizeWorkspace(parsed, locale);
   } catch {
-    return cloneInitial();
+    return cloneInitial(locale);
   }
 }
 
@@ -40,7 +51,11 @@ interface ToastState {
   action?: () => void;
 }
 
-function findOpenPosition(board: Board, threadId: string) {
+function findOpenPosition(
+  board: Board,
+  threadId: string,
+  incoming: Pick<Note, 'text' | 'kind' | 'author'>,
+) {
   const width = 240;
   const margin = 18;
   const threadNotes = board.notes.filter((note) => note.threadId === threadId);
@@ -48,15 +63,15 @@ function findOpenPosition(board: Board, threadId: string) {
   const minX = anchor.length ? Math.min(...anchor.map((note) => note.x)) : 180;
   const maxX = anchor.length ? Math.max(...anchor.map((note) => note.x + note.width)) : 180;
   const minY = anchor.length ? Math.min(...anchor.map((note) => note.y)) : 120;
-  const heightFor = (note: Note) =>
+  const heightFor = (note: Pick<Note, 'text' | 'kind' | 'author'>) =>
     Math.max(
-      estimateNoteHeight(note),
+      estimateNoteHeight(note as Note),
       note.kind === 'quote' || note.kind === 'question' ? 190 : 160,
     );
   const maxY = anchor.length
     ? Math.max(...anchor.map((note) => note.y + heightFor(note)))
     : 120;
-  const testHeight = 190;
+  const testHeight = heightFor(incoming);
   const gap = 28;
   const stepX = width + gap;
   const stepY = testHeight + gap;
@@ -106,7 +121,8 @@ function findOpenPosition(board: Board, threadId: string) {
 }
 
 export default function App() {
-  const [workspace, setWorkspace] = useState<Workspace>(loadWorkspace);
+  const { locale, setLocale, t, formatDate } = useI18n();
+  const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace(locale));
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ noteId: string; nonce: number } | null>(null);
@@ -130,7 +146,9 @@ export default function App() {
     () => workspace.boards.find((board) => board.id === workspace.activeBoardId) ?? workspace.boards[0],
     [workspace],
   );
-  const analysis = useMemo(() => analyzeBoard(activeBoard), [activeBoard]);
+  const localAnalysis = useMemo(() => analyzeBoard(activeBoard, locale), [activeBoard, locale]);
+  const insight = useBoardInsight(activeBoard, localAnalysis, locale);
+  const analysis = useMemo(() => mergeInsight(localAnalysis, insight), [localAnalysis, insight]);
   const editingNote = composer.editingId
     ? activeBoard.notes.find((note) => note.id === composer.editingId) ?? null
     : null;
@@ -217,7 +235,7 @@ export default function App() {
     (payload: { text: string; kind: NoteKind; author?: string }) => {
       const board = activeBoard;
       const assignment = assignThread(board, payload.text);
-      const position = findOpenPosition(board, assignment.threadId);
+      const position = findOpenPosition(board, assignment.threadId, payload);
       const id = `note-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const note: Note = {
         id,
@@ -231,7 +249,7 @@ export default function App() {
         createdAt: Date.now(),
       };
       const newThread = assignment.created
-        ? createThreadMeta(board, payload.text, assignment.threadId)
+        ? createThreadMeta(board, payload.text, assignment.threadId, locale)
         : null;
       setWorkspace((current) => ({
         ...current,
@@ -253,15 +271,15 @@ export default function App() {
 
       const meta = board.threads.find((thread) => thread.id === assignment.threadId);
       if (assignment.created) {
-        showToast('A new thread begins');
+        showToast(t('toast.newThread'));
       } else if (meta) {
-        showToast(`Woven into ${meta.label}`);
+        showToast(t('toast.woven', { label: meta.label }));
       } else {
-        showToast(`${noteKindLabel[payload.kind]} added`);
+        showToast(t('toast.kindAdded', { kind: t(kindKeys[payload.kind]) }));
       }
       return note;
     },
-    [activeBoard, showToast],
+    [activeBoard, locale, showToast, t],
   );
 
   const quickAdd = useCallback(
@@ -284,13 +302,13 @@ export default function App() {
           ),
         }));
         setComposer({ open: false, editingId: null });
-        showToast('Note refined');
+        showToast(t('toast.noteRefined'));
       } else {
         addNoteWithPayload(payload);
         setComposer({ open: false, editingId: null });
       }
     },
-    [addNoteWithPayload, composer.editingId, showToast, updateActiveBoard],
+    [addNoteWithPayload, composer.editingId, showToast, t, updateActiveBoard],
   );
 
   const deleteNote = useCallback(
@@ -307,8 +325,8 @@ export default function App() {
         };
       });
       if (selectedNoteId === id) setSelectedNoteId(null);
-      showToast('Note removed', {
-        label: 'Undo',
+      showToast(t('toast.noteRemoved'), {
+        label: t('toast.undo'),
         run: () => {
           setWorkspace((current) => ({
             ...current,
@@ -318,19 +336,19 @@ export default function App() {
                 : board,
             ),
           }));
-          showToast('Note restored');
+          showToast(t('toast.noteRestored'));
         },
       });
     },
-    [activeBoard, selectedNoteId, showToast, updateActiveBoard],
+    [activeBoard, selectedNoteId, showToast, t, updateActiveBoard],
   );
 
   const createBoard = useCallback(() => {
     const id = `canvas-${Date.now()}`;
     const board: Board = {
       id,
-      name: 'Untitled canvas',
-      description: 'A new place to think.',
+      name: locale === 'zh' ? '未命名画布' : 'Untitled canvas',
+      description: locale === 'zh' ? '一块新的思考之地。' : 'A new place to think.',
       color: threadPalette[Math.floor(Math.random() * threadPalette.length)],
       notes: [],
       threads: [],
@@ -345,9 +363,9 @@ export default function App() {
     setSelectedThreadId(null);
     setFocusRequest(null);
     setActiveTab('read');
-    showToast('New canvas created — name it in the header');
+    showToast(t('toast.newCanvas'));
     if (window.innerWidth <= 1100) setPanelOpen(false);
-  }, [showToast]);
+  }, [locale, showToast, t]);
 
   const selectBoard = useCallback((id: string) => {
     setWorkspace((current) => ({ ...current, activeBoardId: id }));
@@ -386,7 +404,7 @@ export default function App() {
   const arrange = useCallback(() => {
     const threads = analysis.threads;
     if (!threads.length) {
-      showToast('Add a few notes first');
+      showToast(t('toast.needNotes'));
       return;
     }
     const positions = new Map<string, { x: number; y: number; index: number }>();
@@ -413,32 +431,33 @@ export default function App() {
     }));
     setSelectedThreadId(null);
     setFitNonce((value) => value + 1);
-    showToast('Canvas tidied by meaning');
-  }, [activeBoard.notes, analysis.threads, showToast, updateActiveBoard]);
+    showToast(t('toast.tidied'));
+  }, [activeBoard.notes, analysis.threads, showToast, t, updateActiveBoard]);
 
   const openBrief = useCallback(() => {
     if (!activeBoard.notes.length) {
-      showToast('Add a note before drafting a brief');
+      showToast(t('toast.needNoteBrief'));
       return;
     }
     setBriefOpen(true);
-  }, [activeBoard.notes.length, showToast]);
+  }, [activeBoard.notes.length, showToast, t]);
 
   const openComposer = useCallback(() => setComposer({ open: true, editingId: null }), []);
   const editNote = useCallback((id: string) => setComposer({ open: true, editingId: id }), []);
 
   const share = useCallback(async () => {
     if (!activeBoard.notes.length) {
-      showToast('Add a note before sharing the thinking');
+      showToast(t('toast.needNoteShare'));
       return;
     }
-    const dateLabel = new Date().toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-    const markdown = buildBriefContent(activeBoard, analysis, dateLabel).markdown;
-    const title = `${activeBoard.name} — Working brief`;
+    const dateLabel = formatDate();
+    const markdown = buildBriefContent(
+      activeBoard,
+      analysis,
+      dateLabel,
+      locale,
+    ).markdown;
+    const title = `${activeBoard.name} — ${t('brief.working')}`;
     if (navigator.share) {
       try {
         await navigator.share({ title, text: markdown });
@@ -449,11 +468,11 @@ export default function App() {
     }
     try {
       await navigator.clipboard.writeText(markdown);
-      showToast('Working brief copied — ready to share');
+      showToast(t('toast.briefCopied'));
     } catch {
-      showToast('Could not access the clipboard');
+      showToast(t('toast.clipboard'));
     }
-  }, [activeBoard, analysis, showToast]);
+  }, [activeBoard, analysis, formatDate, locale, showToast, t]);
 
   const renameBoard = useCallback(
     (name: string) => {
@@ -466,6 +485,12 @@ export default function App() {
     setActiveTab('ask');
     setPanelOpen(true);
   }, []);
+
+  const toggleLocale = useCallback(() => {
+    const next: Locale = locale === 'zh' ? 'en' : 'zh';
+    setWorkspace((current) => localizeWorkspace(current, next));
+    setLocale(next);
+  }, [locale, setLocale]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -493,7 +518,9 @@ export default function App() {
         onTogglePanel={() => setPanelOpen((current) => !current)}
         onShare={share}
         onRename={renameBoard}
-        onAccount={() => showToast('Signed in as Maya Chen · Personal workspace')}
+        onAccount={() => showToast(t('toast.signedIn'))}
+        locale={locale}
+        onToggleLocale={toggleLocale}
       />
       <div className="workspace">
         <Sidebar
@@ -504,10 +531,8 @@ export default function App() {
           onSelectBoard={selectBoard}
           onNewCanvas={createBoard}
           onFocusThread={focusThread}
-          onPrivacy={() =>
-            showToast('Everything stays on this device — no account, no server, no tracking')
-          }
-          onSettings={() => showToast('Preferences are stored on this device')}
+          onPrivacy={() => showToast(t('toast.privacy'))}
+          onSettings={() => showToast(t('toast.preferences'))}
         />
 
         <CanvasBoard
@@ -527,10 +552,11 @@ export default function App() {
           onArrange={arrange}
           onQuickAdd={quickAdd}
           onOpenComposer={openComposer}
+          panelOpen={panelOpen}
         />
 
         <SynthesisPanel
-          key={`panel-${activeBoard.id}`}
+          key={`panel-${activeBoard.id}-${locale}`}
           board={activeBoard}
           analysis={analysis}
           open={panelOpen}
@@ -546,7 +572,7 @@ export default function App() {
         {!panelOpen && (
           <button className="panel-open-pill" onClick={() => setPanelOpen(true)}>
             <Sparkles size={14} />
-            Open Weft AI
+            {t('toast.openAi')}
           </button>
         )}
       </div>
@@ -575,6 +601,8 @@ export default function App() {
           onTogglePanel={() => setPanelOpen((current) => !current)}
           onFocusNote={focusNoteFromPalette}
           onSelectBoard={selectBoard}
+          locale={locale}
+          onToggleLocale={toggleLocale}
         />
       )}
 
@@ -602,7 +630,7 @@ export default function App() {
               {toast.actionLabel}
             </button>
           )}
-          <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">
+          <button className="toast-close" onClick={() => setToast(null)} aria-label={t('toast.dismiss')}>
             <X size={12} />
           </button>
         </div>
@@ -618,7 +646,7 @@ export default function App() {
               <span className="intro-dot" />
             </div>
             <div className="intro-word">weft</div>
-            <div className="intro-tag">thinking, woven.</div>
+            <div className="intro-tag">{t('intro.tagline')}</div>
             <div className="intro-progress">
               <span />
             </div>
@@ -626,7 +654,7 @@ export default function App() {
         </div>
       )}
 
-      <button className="help-bubble" onClick={() => setCommandOpen(true)} aria-label="Open command menu">
+      <button className="help-bubble" onClick={() => setCommandOpen(true)} aria-label={t('toast.help')}>
         <ArrowUpRight size={15} />
       </button>
     </div>

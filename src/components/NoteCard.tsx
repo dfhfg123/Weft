@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpen, HelpCircle, Pencil, Quote, Trash2 } from 'lucide-react';
 import type { Note, ThreadView } from '../types';
-import { noteKindLabel } from '../data';
+import { useI18n } from '../i18n-context';
 
 interface NoteCardProps {
   note: Note;
@@ -39,6 +39,7 @@ export function NoteCard({
   onDelete,
   onMeasure,
 }: NoteCardProps) {
+  const { t } = useI18n();
   const cardRef = useRef<HTMLElement>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -143,7 +144,15 @@ export function NoteCard({
       <div className="note-top">
         <span className="note-kind">
           {kindIcon[note.kind]}
-          {noteKindLabel[note.kind]}
+          {t(
+            note.kind === 'thought'
+              ? 'noteKind.thought'
+              : note.kind === 'question'
+                ? 'noteKind.question'
+                : note.kind === 'quote'
+                  ? 'noteKind.quote'
+                  : 'noteKind.source',
+          )}
         </span>
         <div className="note-actions">
           <button
@@ -152,7 +161,7 @@ export function NoteCard({
               event.stopPropagation();
               onEdit(note.id);
             }}
-            aria-label="Edit note"
+            aria-label={t('note.edit')}
           >
             <Pencil size={12} />
           </button>
@@ -162,7 +171,7 @@ export function NoteCard({
               event.stopPropagation();
               onDelete(note.id);
             }}
-            aria-label="Delete note"
+            aria-label={t('note.delete')}
           >
             <Trash2 size={12} />
           </button>
@@ -178,7 +187,7 @@ export function NoteCard({
       <div className="note-foot">
         <span className="note-thread">
           <i style={{ background: thread?.color }} />
-          {thread?.short ?? 'Unsorted'}
+          {thread?.short ?? t('note.unsorted')}
         </span>
         <span className="note-grip">
           <i />
